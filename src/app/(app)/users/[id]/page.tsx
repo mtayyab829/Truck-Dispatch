@@ -58,8 +58,8 @@ export default function UserDetailPage() {
       await api(`/api/users/${params.id}/assignments`, {
         method: "PUT",
         body: {
-          driverIds: [...driverIds],
-          truckIds: [...truckIds],
+          driverIds: Array.from(driverIds),
+          truckIds: Array.from(truckIds),
           includeDriverTrucks: true,
         },
       });

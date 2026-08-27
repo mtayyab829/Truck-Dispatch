@@ -72,7 +72,7 @@ export default function NewInvoicePage() {
         method: "POST",
         body: {
           driverId,
-          loadIds: [...selected],
+          loadIds: Array.from(selected),
           issueDate: String(fd.get("issueDate")),
           dueDate: String(fd.get("dueDate")),
           notes: String(fd.get("notes") || ""),
