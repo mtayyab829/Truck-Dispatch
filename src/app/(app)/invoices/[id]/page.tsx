@@ -18,6 +18,7 @@ type InvoiceDetail = {
     invoiceNumber: string;
     kind?: string;
     billTo?: string | null;
+    billToEmail?: string | null;
     amount: number;
     paidTotal: number;
     balance: number;
@@ -28,6 +29,7 @@ type InvoiceDetail = {
     aging: string;
   };
   driver: Driver | null;
+  suggestedRecipientEmail?: string | null;
   items: Array<{
     id: string;
     description: string;
@@ -68,7 +70,18 @@ export default function InvoiceDetailPage() {
   function openSendEmail() {
     setEmailOk(null);
     setError(null);
-    setEmailTo(data?.driver?.email ?? "");
+    const fromLoads =
+      data?.items
+        .map((item) => extractEmailFromText(item.load?.source))
+        .find(Boolean) ?? "";
+    const suggested =
+      data?.suggestedRecipientEmail ||
+      data?.invoice.billToEmail ||
+      fromLoads ||
+      extractEmailFromText(data?.invoice.billTo) ||
+      data?.driver?.email ||
+      "";
+    setEmailTo(suggested);
     setEmailNote("");
     setShowEmail(true);
   }
@@ -230,7 +243,10 @@ export default function InvoiceDetailPage() {
           >
             <h2 className="text-lg font-semibold text-slate-900">Email invoice</h2>
             <p className="text-sm text-slate-500">
-              Enter the recipient email. Sent from your configured Gmail account.
+              Sent from your configured Gmail account.
+              {invoice.kind === "FREIGHT" && !emailTo && (
+                <> Add broker email when creating the freight invoice, or enter it below.</>
+              )}
             </p>
             <div className="space-y-2">
               <Label htmlFor="invoiceEmail">Email</Label>
@@ -312,8 +328,14 @@ export default function InvoiceDetailPage() {
             {invoice.kind !== "FREIGHT" && driver?.email && (
               <p className="text-slate-600">{driver.email}</p>
             )}
-            {invoice.kind === "FREIGHT" && (
-              <p className="text-xs text-slate-500">Freight invoice</p>
+            {invoice.kind === "FREIGHT" && invoice.billTo && (
+              <p className="text-slate-600">{invoice.billTo}</p>
+            )}
+            {invoice.kind === "FREIGHT" && invoice.billToEmail && (
+              <p className="text-slate-600">{invoice.billToEmail}</p>
+            )}
+            {invoice.kind === "FREIGHT" && !invoice.billToEmail && (
+              <p className="text-xs text-slate-500">No broker email saved yet</p>
             )}
           </div>
           <div className="sm:text-right">
@@ -434,4 +456,10 @@ export default function InvoiceDetailPage() {
       )}
     </div>
   );
+}
+
+function extractEmailFromText(value: string | null | undefined): string {
+  if (!value) return "";
+  const match = value.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+  return match?.[0]?.toLowerCase() ?? "";
 }

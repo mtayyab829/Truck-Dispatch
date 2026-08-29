@@ -92,6 +92,11 @@ export default function LoadDetailPage() {
   const [showPayForm, setShowPayForm] = useState(false);
   const [freightMsg, setFreightMsg] = useState<string | null>(null);
   const [uploadName, setUploadName] = useState<string | null>(null);
+  const [showFreightInvoice, setShowFreightInvoice] = useState(false);
+  const [showReminder, setShowReminder] = useState(false);
+  const [freightBillTo, setFreightBillTo] = useState("");
+  const [freightBillToEmail, setFreightBillToEmail] = useState("");
+  const [reminderEmail, setReminderEmail] = useState("");
 
   const refresh = useCallback(async () => {
     const res = await api<LoadDetail>(`/api/loads/${params.id}`);
@@ -234,15 +239,20 @@ export default function LoadDetailPage() {
     }
   }
 
-  async function sendPaymentReminder() {
+  async function sendPaymentReminder(e?: FormEvent) {
+    e?.preventDefault();
     setBusy(true);
     setError(null);
     setFreightMsg(null);
     try {
       const res = await api<{ message: string }>(
         `/api/loads/${params.id}/payment-reminder`,
-        { method: "POST", body: {} }
+        {
+          method: "POST",
+          body: { email: reminderEmail.trim() || undefined },
+        }
       );
+      setShowReminder(false);
       setFreightMsg(res.message);
       await refresh();
     } catch (err) {
@@ -252,15 +262,33 @@ export default function LoadDetailPage() {
     }
   }
 
-  async function createFreightInvoice() {
+  function openPaymentReminder() {
+    const load = data?.load;
+    setReminderEmail(
+      extractEmailFromText(load?.source) ||
+        extractEmailFromText(load?.notes) ||
+        ""
+    );
+    setShowReminder(true);
+  }
+
+  async function createFreightInvoice(e?: FormEvent) {
+    e?.preventDefault();
     setBusy(true);
     setError(null);
     setFreightMsg(null);
     try {
       const res = await api<{ invoice: { id: string; invoiceNumber: string } }>(
         `/api/loads/${params.id}/freight-invoice`,
-        { method: "POST", body: {} }
+        {
+          method: "POST",
+          body: {
+            billTo: freightBillTo.trim() || undefined,
+            billToEmail: freightBillToEmail.trim() || undefined,
+          },
+        }
       );
+      setShowFreightInvoice(false);
       setFreightMsg(`Invoice ${res.invoice.invoiceNumber} created.`);
       await refresh();
       window.location.href = `/invoices/${res.invoice.id}`;
@@ -269,6 +297,17 @@ export default function LoadDetailPage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function openFreightInvoice() {
+    const load = data?.load;
+    setFreightBillTo(load?.source?.trim() || "");
+    setFreightBillToEmail(
+      extractEmailFromText(load?.source) ||
+        extractEmailFromText(load?.notes) ||
+        ""
+    );
+    setShowFreightInvoice(true);
   }
 
   if (!data && !error) {
@@ -609,7 +648,7 @@ export default function LoadDetailPage() {
                 <Button
                   disabled={busy}
                   variant="outline"
-                  onClick={() => void sendPaymentReminder()}
+                  onClick={() => openPaymentReminder()}
                 >
                   Send reminder
                 </Button>
@@ -617,7 +656,7 @@ export default function LoadDetailPage() {
                   <Button
                     disabled={busy}
                     variant="outline"
-                    onClick={() => void createFreightInvoice()}
+                    onClick={() => openFreightInvoice()}
                   >
                     Create invoice
                   </Button>
@@ -630,6 +669,88 @@ export default function LoadDetailPage() {
               </Link>
             )}
           </div>
+
+          <p className="text-xs text-slate-500">
+            Payment reminder: logs an in-app alert and emails the broker if an email is set and Gmail is configured on the backend.
+          </p>
+
+          {showReminder && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
+              <form
+                onSubmit={sendPaymentReminder}
+                className="w-full max-w-md space-y-4 rounded-lg bg-white p-6 shadow-xl"
+              >
+                <h2 className="text-lg font-semibold text-slate-900">Payment reminder</h2>
+                <p className="text-sm text-slate-500">
+                  Creates a notification in TruckOps. If you enter an email and Gmail is set up, it also sends a reminder email.
+                </p>
+                <div className="space-y-2">
+                  <Label htmlFor="reminderEmail">Broker email (optional)</Label>
+                  <Input
+                    id="reminderEmail"
+                    type="email"
+                    value={reminderEmail}
+                    onChange={(e) => setReminderEmail(e.target.value)}
+                    placeholder="broker@example.com"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button type="submit" disabled={busy} className="bg-slate-900">
+                    {busy ? "Sending…" : "Send reminder"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShowReminder(false)}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {showFreightInvoice && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
+              <form
+                onSubmit={createFreightInvoice}
+                className="w-full max-w-md space-y-4 rounded-lg bg-white p-6 shadow-xl"
+              >
+                <h2 className="text-lg font-semibold text-slate-900">Create freight invoice</h2>
+                <div className="space-y-2">
+                  <Label htmlFor="freightBillTo">Bill to</Label>
+                  <Input
+                    id="freightBillTo"
+                    value={freightBillTo}
+                    onChange={(e) => setFreightBillTo(e.target.value)}
+                    placeholder="Broker or customer name"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="freightBillToEmail">Bill to email</Label>
+                  <Input
+                    id="freightBillToEmail"
+                    type="email"
+                    value={freightBillToEmail}
+                    onChange={(e) => setFreightBillToEmail(e.target.value)}
+                    placeholder="broker@example.com"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button type="submit" disabled={busy} className="bg-slate-900">
+                    {busy ? "Creating…" : "Create invoice"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShowFreightInvoice(false)}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </form>
+            </div>
+          )}
 
           {showPayForm && canRecordAny && (
             <form
@@ -910,6 +1031,12 @@ export default function LoadDetailPage() {
       </section>
     </div>
   );
+}
+
+function extractEmailFromText(value: string | null | undefined): string {
+  if (!value) return "";
+  const match = value.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+  return match?.[0]?.toLowerCase() ?? "";
 }
 
 function Info({ label, value }: { label: string; value: React.ReactNode }) {
