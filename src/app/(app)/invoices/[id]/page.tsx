@@ -243,7 +243,7 @@ export default function InvoiceDetailPage() {
           >
             <h2 className="text-lg font-semibold text-slate-900">Email invoice</h2>
             <p className="text-sm text-slate-500">
-              Sent from your configured Gmail account.
+              Sent from your configured email provider (Resend on Render, or Gmail locally).
               {invoice.kind === "FREIGHT" && !emailTo && (
                 <> Add broker email when creating the freight invoice, or enter it below.</>
               )}
