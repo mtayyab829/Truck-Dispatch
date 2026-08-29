@@ -6,7 +6,16 @@ import { useParams } from "next/navigation";
 import { api, apiForm, ApiError, apiFileUrl, fetchFileObjectUrl } from "@/lib/api";
 import type { Driver, Truck } from "@/lib/fleet";
 import { formatDate } from "@/lib/fleet";
-import { money, statusLabel, STATUS_FLOW, type Load } from "@/lib/loads";
+import {
+  money,
+  statusLabel,
+  STATUS_FLOW,
+  commissionPaymentStatus,
+  freightPaymentStatusDetailed,
+  commissionPaymentStatusDetailed,
+  type Load,
+} from "@/lib/loads";
+import { PaymentStatusBadge } from "@/components/payment-status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -425,8 +434,11 @@ export default function LoadDetailPage() {
                 {load.commissionType === "PERCENTAGE"
                   ? `${load.commissionValue}%`
                   : "Fixed"}{" "}
-                · {load.commissionEarned ? "Earned" : "Pending"}
-                {load.commissionSettled ? " · Settled" : ""}
+                ·{" "}
+                <PaymentStatusBadge
+                  {...commissionPaymentStatus(load)}
+                  className="align-middle"
+                />
               </span>
             </>
           }
@@ -440,6 +452,48 @@ export default function LoadDetailPage() {
           }
         />
       </div>
+
+      {!isCancelled && (
+        <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-900">Payment status</h2>
+              <p className="text-xs text-slate-500">
+                Freight from broker · commission to driver
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-4">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500">Freight</span>
+                <PaymentStatusBadge
+                  {...freightPaymentStatusDetailed({
+                    loadStatus: load.loadStatus,
+                    settled: freight.settled,
+                    outstanding: freight.outstanding,
+                    received: freight.received,
+                  })}
+                />
+                <span className="text-xs text-slate-600">{money(load.rate)}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500">Commission</span>
+                <PaymentStatusBadge
+                  {...commissionPaymentStatusDetailed({
+                    loadStatus: load.loadStatus,
+                    settled: commission.settled,
+                    outstanding: commission.outstanding,
+                    earned: commission.earned,
+                    received: commission.received,
+                  })}
+                />
+                <span className="text-xs text-slate-600">
+                  {money(load.commissionAmount)}
+                </span>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -583,37 +637,60 @@ export default function LoadDetailPage() {
           <div className="rounded-md border border-slate-200 bg-slate-50 p-4 text-sm">
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <p className="text-xs uppercase tracking-wide text-slate-500">
-                  Freight
-                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">
+                    Freight
+                  </p>
+                  <PaymentStatusBadge
+                    {...freightPaymentStatusDetailed({
+                      loadStatus: load.loadStatus,
+                      settled: freight.settled,
+                      outstanding: freight.outstanding,
+                      received: freight.received,
+                    })}
+                  />
+                </div>
                 <p className="mt-1 font-semibold text-slate-900">
                   {money(freight.received)} / {money(freight.rate)}
                 </p>
                 <p className="text-xs text-slate-500">
-                  Unpaid {money(freight.outstanding)}
+                  {freight.settled
+                    ? "Fully paid"
+                    : freight.outstanding > 0
+                      ? `Outstanding ${money(freight.outstanding)}`
+                      : "—"}
                   {!freightStepOpen &&
                   !freight.settled &&
                   load.loadStatus !== "PAYMENT_COMPLETED"
                     ? " · unlocks after POD"
-                    : freight.settled
-                      ? " · paid"
-                      : ""}
+                    : ""}
                 </p>
               </div>
               <div>
-                <p className="text-xs uppercase tracking-wide text-slate-500">
-                  Commission
-                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">
+                    Commission
+                  </p>
+                  <PaymentStatusBadge
+                    {...commissionPaymentStatusDetailed({
+                      loadStatus: load.loadStatus,
+                      settled: commission.settled,
+                      outstanding: commission.outstanding,
+                      earned: commission.earned,
+                      received: commission.received,
+                    })}
+                  />
+                </div>
                 <p className="mt-1 font-semibold text-slate-900">
                   {money(commission.received)} / {money(commission.amount)}
                 </p>
                 <p className="text-xs text-slate-500">
-                  Unpaid {money(commission.outstanding)}
-                  {!commission.earned
-                    ? " · after delivery"
-                    : commission.settled
-                      ? " · settled"
-                      : ""}
+                  {commission.settled
+                    ? "Fully paid"
+                    : commission.outstanding > 0
+                      ? `Outstanding ${money(commission.outstanding)}`
+                      : "—"}
+                  {!commission.earned ? " · after delivery" : ""}
                 </p>
               </div>
             </div>

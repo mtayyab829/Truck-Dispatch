@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Plus } from "lucide-react";
 import { api } from "@/lib/api";
-import { money, statusLabel, type Load } from "@/lib/loads";
+import { money, statusLabel, freightPaymentStatus, commissionPaymentStatus, type Load } from "@/lib/loads";
+import { PaymentStatusBadge } from "@/components/payment-status-badge";
 import { formatDate } from "@/lib/fleet";
 import { Button } from "@/components/ui/button";
 
@@ -72,6 +73,7 @@ export default function LoadsPage() {
                 <th className="px-4 py-3 font-medium">Driver</th>
                 <th className="px-4 py-3 font-medium">Rate</th>
                 <th className="px-4 py-3 font-medium">Commission</th>
+                <th className="px-4 py-3 font-medium">Payments</th>
                 <th className="px-4 py-3 font-medium">Status</th>
                 <th className="px-4 py-3 font-medium">Pickup</th>
               </tr>
@@ -103,8 +105,22 @@ export default function LoadsPage() {
                   <td className="px-4 py-3 text-slate-600">
                     {money(l.commissionAmount)}
                     <p className="text-xs text-slate-500">
-                      {l.commissionEarned ? "Earned" : "Pending"}
+                      {l.commissionType === "PERCENTAGE"
+                        ? `${l.commissionValue}%`
+                        : "Fixed"}
                     </p>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-slate-500 w-14">Freight</span>
+                        <PaymentStatusBadge {...freightPaymentStatus(l)} />
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-slate-500 w-14">Comm.</span>
+                        <PaymentStatusBadge {...commissionPaymentStatus(l)} />
+                      </div>
+                    </div>
                   </td>
                   <td className="px-4 py-3">
                     <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">

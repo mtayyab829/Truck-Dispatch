@@ -32,7 +32,7 @@ export default function FinancesClient() {
       <div>
         <h1 className="text-2xl font-semibold text-slate-900">Finances</h1>
         <p className="mt-1 text-slate-600">
-          Payments (freight &amp; commission) and invoices.
+          Track load payment status (upcoming, in progress, paid) and manage invoices.
         </p>
       </div>
 

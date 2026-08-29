@@ -2,17 +2,24 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
-import { money } from "@/lib/loads";
+import {
+  money,
+  freightPaymentStatus,
+  commissionPaymentStatus,
+  loadHasOpenPayments,
+  type Load,
+} from "@/lib/loads";
 import { formatDate, type Driver } from "@/lib/fleet";
-import type { Load } from "@/lib/loads";
+import { PaymentStatusBadge } from "@/components/payment-status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 
 type Payment = {
   id: string;
@@ -26,6 +33,8 @@ type Payment = {
   driver: Driver | null;
   load: Load | null;
 };
+
+type PaymentFilter = "all" | "open" | "paid";
 
 function typeLabel(type: string): string {
   switch (type) {
@@ -48,6 +57,19 @@ function commissionLabel(load: Load | null): string {
   return `Fixed ${money(load.commissionValue)}`;
 }
 
+function paymentSortPriority(load: Load): number {
+  const freight = freightPaymentStatus(load);
+  const commission = commissionPaymentStatus(load);
+  const open =
+    freight.tone === "due" ||
+    commission.tone === "due" ||
+    freight.tone === "upcoming" ||
+    commission.tone === "upcoming";
+  if (open) return 0;
+  if (freight.tone === "paid" && commission.tone === "paid") return 2;
+  return 1;
+}
+
 export function PaymentsPanel() {
   const router = useRouter();
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -55,19 +77,46 @@ export function PaymentsPanel() {
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [loadFilter, setLoadFilter] = useState<PaymentFilter>("all");
 
   async function refresh() {
-    const res = await api<{ payments: Payment[] }>("/api/payments");
-    setPayments(res.payments);
+    const [payRes, loadRes] = await Promise.all([
+      api<{ payments: Payment[] }>("/api/payments"),
+      api<{ loads: Load[] }>("/api/loads"),
+    ]);
+    setPayments(payRes.payments);
+    setLoads(loadRes.loads);
   }
 
   useEffect(() => {
-    void Promise.all([refresh(), api<{ loads: Load[] }>("/api/loads")])
-      .then(([, l]) => {
-        setLoads(l.loads);
-      })
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed"));
+    void refresh().catch((err) =>
+      setError(err instanceof Error ? err.message : "Failed")
+    );
   }, []);
+
+  const activeLoads = useMemo(
+    () => loads.filter((l) => l.loadStatus !== "CANCELLED"),
+    [loads]
+  );
+
+  const filteredLoads = useMemo(() => {
+    let list = activeLoads;
+    if (loadFilter === "open") {
+      list = list.filter(loadHasOpenPayments);
+    } else if (loadFilter === "paid") {
+      list = list.filter(
+        (l) => l.rateSettled && l.commissionSettled
+      );
+    }
+    return [...list].sort(
+      (a, b) => paymentSortPriority(a) - paymentSortPriority(b)
+    );
+  }, [activeLoads, loadFilter]);
+
+  const openCount = useMemo(
+    () => activeLoads.filter(loadHasOpenPayments).length,
+    [activeLoads]
+  );
 
   async function onCreate(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -127,10 +176,10 @@ export function PaymentsPanel() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <p className="text-sm text-slate-600">
-          All freight and commission payments. Click a row to open the load.
+          Track freight and commission status per load, then record payments as they come in.
         </p>
         <Button className="bg-slate-900" onClick={() => setShowForm(true)}>
           <Plus className="mr-2 h-4 w-4" />
@@ -144,75 +193,186 @@ export function PaymentsPanel() {
         </div>
       )}
 
-      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-        <table className="w-full text-left text-sm">
-          <thead className="border-b border-slate-200 bg-slate-50 text-slate-500">
-            <tr>
-              <th className="px-4 py-3 font-medium">Date</th>
-              <th className="px-4 py-3 font-medium">Type</th>
-              <th className="px-4 py-3 font-medium">Driver / Load</th>
-              <th className="px-4 py-3 font-medium">Commission</th>
-              <th className="px-4 py-3 font-medium">Load rate</th>
-              <th className="px-4 py-3 font-medium">Amount</th>
-              <th className="px-4 py-3 font-medium">Method</th>
-            </tr>
-          </thead>
-          <tbody>
-            {payments.map((p) => (
-              <tr
-                key={p.id}
-                className={
-                  p.load?.id
-                    ? "cursor-pointer border-b border-slate-100 hover:bg-slate-50"
-                    : "border-b border-slate-100"
-                }
-                onClick={() => openPayment(p)}
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">Load payments</h2>
+            <p className="text-sm text-slate-500">
+              {openCount} load{openCount === 1 ? "" : "s"} with open freight or commission
+            </p>
+          </div>
+          <div className="flex gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1">
+            {(
+              [
+                ["all", "All loads"],
+                ["open", "Open"],
+                ["paid", "Fully paid"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setLoadFilter(id)}
+                className={cn(
+                  "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                  loadFilter === id
+                    ? "bg-white text-slate-900 shadow-sm"
+                    : "text-slate-500 hover:text-slate-800"
+                )}
               >
-                <td className="px-4 py-3 text-slate-600">{formatDate(p.date)}</td>
-                <td className="px-4 py-3 font-medium text-slate-900">
-                  {typeLabel(p.type)}
-                </td>
-                <td className="px-4 py-3 text-slate-600">
-                  {p.driver?.name ?? "—"}
-                  {p.load && (
-                    <p className="text-xs">
-                      <Link
-                        href={`/loads/${p.load.id}`}
-                        className="hover:underline"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {p.load.loadNumber}
-                      </Link>
-                    </p>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-slate-600">
-                  {commissionLabel(p.load)}
-                  {p.load && (
-                    <p className="text-xs text-slate-400">
-                      = {money(p.load.commissionAmount)}
-                    </p>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-slate-600">
-                  {p.load ? money(p.load.rate) : "—"}
-                </td>
-                <td className="px-4 py-3 font-medium">{money(p.amount)}</td>
-                <td className="px-4 py-3 text-slate-600">
-                  {p.method.replace(/_/g, " ")}
-                </td>
-              </tr>
+                {label}
+              </button>
             ))}
-            {payments.length === 0 && (
+          </div>
+        </div>
+
+        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-slate-200 bg-slate-50 text-slate-500">
               <tr>
-                <td colSpan={7} className="px-4 py-10 text-center text-slate-400">
-                  No payments recorded yet.
-                </td>
+                <th className="px-4 py-3 font-medium">Load</th>
+                <th className="px-4 py-3 font-medium">Route</th>
+                <th className="px-4 py-3 font-medium">Driver</th>
+                <th className="px-4 py-3 font-medium">Freight</th>
+                <th className="px-4 py-3 font-medium">Freight status</th>
+                <th className="px-4 py-3 font-medium">Commission</th>
+                <th className="px-4 py-3 font-medium">Commission status</th>
               </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {filteredLoads.map((l) => (
+                <tr
+                  key={l.id}
+                  className="cursor-pointer border-b border-slate-100 hover:bg-slate-50"
+                  onClick={() => router.push(`/loads/${l.id}`)}
+                >
+                  <td className="px-4 py-3">
+                    <Link
+                      href={`/loads/${l.id}`}
+                      className="font-medium text-slate-900 hover:underline"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {l.loadNumber}
+                    </Link>
+                  </td>
+                  <td className="px-4 py-3 text-slate-600">
+                    {l.pickupCity} → {l.deliveryCity}
+                  </td>
+                  <td className="px-4 py-3 text-slate-600">
+                    {l.driver?.name ?? "—"}
+                  </td>
+                  <td className="px-4 py-3 text-slate-600">{money(l.rate)}</td>
+                  <td className="px-4 py-3">
+                    <PaymentStatusBadge {...freightPaymentStatus(l)} />
+                  </td>
+                  <td className="px-4 py-3 text-slate-600">
+                    {money(l.commissionAmount)}
+                  </td>
+                  <td className="px-4 py-3">
+                    <PaymentStatusBadge {...commissionPaymentStatus(l)} />
+                  </td>
+                </tr>
+              ))}
+              {filteredLoads.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-10 text-center text-slate-400">
+                    {loadFilter === "open"
+                      ? "No loads with open payments."
+                      : loadFilter === "paid"
+                        ? "No fully paid loads yet."
+                        : "No loads yet."}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <p className="text-xs text-slate-500">
+          <span className="font-medium text-sky-700">Upcoming</span> — not yet due ·{" "}
+          <span className="font-medium text-amber-700">In progress / Due</span> — payment expected ·{" "}
+          <span className="font-medium text-emerald-700">Paid</span> — settled
+        </p>
+      </section>
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900">Recorded payments</h2>
+          <p className="text-sm text-slate-500">
+            Transactions already logged. Click a row to open the load.
+          </p>
+        </div>
+
+        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-slate-200 bg-slate-50 text-slate-500">
+              <tr>
+                <th className="px-4 py-3 font-medium">Date</th>
+                <th className="px-4 py-3 font-medium">Type</th>
+                <th className="px-4 py-3 font-medium">Driver / Load</th>
+                <th className="px-4 py-3 font-medium">Commission</th>
+                <th className="px-4 py-3 font-medium">Load rate</th>
+                <th className="px-4 py-3 font-medium">Amount</th>
+                <th className="px-4 py-3 font-medium">Method</th>
+              </tr>
+            </thead>
+            <tbody>
+              {payments.map((p) => (
+                <tr
+                  key={p.id}
+                  className={
+                    p.load?.id
+                      ? "cursor-pointer border-b border-slate-100 hover:bg-slate-50"
+                      : "border-b border-slate-100"
+                  }
+                  onClick={() => openPayment(p)}
+                >
+                  <td className="px-4 py-3 text-slate-600">{formatDate(p.date)}</td>
+                  <td className="px-4 py-3 font-medium text-slate-900">
+                    {typeLabel(p.type)}
+                  </td>
+                  <td className="px-4 py-3 text-slate-600">
+                    {p.driver?.name ?? "—"}
+                    {p.load && (
+                      <p className="text-xs">
+                        <Link
+                          href={`/loads/${p.load.id}`}
+                          className="hover:underline"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {p.load.loadNumber}
+                        </Link>
+                      </p>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-slate-600">
+                    {commissionLabel(p.load)}
+                    {p.load && (
+                      <p className="text-xs text-slate-400">
+                        = {money(p.load.commissionAmount)}
+                      </p>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-slate-600">
+                    {p.load ? money(p.load.rate) : "—"}
+                  </td>
+                  <td className="px-4 py-3 font-medium">{money(p.amount)}</td>
+                  <td className="px-4 py-3 text-slate-600">
+                    {p.method.replace(/_/g, " ")}
+                  </td>
+                </tr>
+              ))}
+              {payments.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-10 text-center text-slate-400">
+                    No payments recorded yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
@@ -231,14 +391,16 @@ export function PaymentsPanel() {
                   <option value="" disabled>
                     Select load
                   </option>
-                  {loads.map((l) => (
-                    <option key={l.id} value={l.id}>
-                      {l.loadNumber}
-                      {l.commissionType === "PERCENTAGE"
-                        ? ` · ${l.commissionValue}%`
-                        : ` · fixed ${money(l.commissionValue)}`}
-                    </option>
-                  ))}
+                  {loads.map((l) => {
+                    const freight = freightPaymentStatus(l);
+                    const commission = commissionPaymentStatus(l);
+                    return (
+                      <option key={l.id} value={l.id}>
+                        {l.loadNumber} · freight {freight.label.toLowerCase()} · comm{" "}
+                        {commission.label.toLowerCase()}
+                      </option>
+                    );
+                  })}
                 </Select>
               </div>
               <div className="space-y-2">

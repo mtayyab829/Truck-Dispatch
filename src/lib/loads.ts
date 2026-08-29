@@ -85,3 +85,108 @@ export const STATUS_FLOW: LoadStatus[] = [
   "POD_RECEIVED",
   "PAYMENT_COMPLETED",
 ];
+
+export type PaymentStatusTone =
+  | "paid"
+  | "due"
+  | "upcoming"
+  | "pending"
+  | "cancelled";
+
+export type PaymentStatus = {
+  label: string;
+  tone: PaymentStatusTone;
+};
+
+const FREIGHT_DUE_STATUSES = new Set<LoadStatus>([
+  "POD_RECEIVED",
+  "PAYMENT_FOLLOW_UP",
+]);
+
+/** Freight (broker/customer) payment status for a load */
+export function freightPaymentStatus(
+  load: Pick<Load, "loadStatus" | "rateSettled">
+): PaymentStatus {
+  if (load.loadStatus === "CANCELLED") {
+    return { label: "Cancelled", tone: "cancelled" };
+  }
+  if (load.rateSettled || load.loadStatus === "PAYMENT_COMPLETED") {
+    return { label: "Paid", tone: "paid" };
+  }
+  if (FREIGHT_DUE_STATUSES.has(load.loadStatus)) {
+    return { label: "In progress", tone: "due" };
+  }
+  return { label: "Upcoming", tone: "upcoming" };
+}
+
+/** Commission payment status for a load */
+export function commissionPaymentStatus(
+  load: Pick<Load, "loadStatus" | "commissionSettled" | "commissionEarned">
+): PaymentStatus {
+  if (load.loadStatus === "CANCELLED") {
+    return { label: "Cancelled", tone: "cancelled" };
+  }
+  if (load.commissionSettled) {
+    return { label: "Paid", tone: "paid" };
+  }
+  if (load.commissionEarned) {
+    return { label: "Due", tone: "due" };
+  }
+  return { label: "Upcoming", tone: "upcoming" };
+}
+
+/** Detail view with received/outstanding amounts */
+export function freightPaymentStatusDetailed(input: {
+  loadStatus: LoadStatus;
+  settled: boolean;
+  outstanding: number;
+  received: number;
+}): PaymentStatus {
+  if (input.loadStatus === "CANCELLED") {
+    return { label: "Cancelled", tone: "cancelled" };
+  }
+  if (input.settled || input.outstanding <= 0.001) {
+    return { label: "Paid", tone: "paid" };
+  }
+  if (input.received > 0.001) {
+    return { label: "In progress", tone: "due" };
+  }
+  if (FREIGHT_DUE_STATUSES.has(input.loadStatus)) {
+    return { label: "Due", tone: "due" };
+  }
+  return { label: "Upcoming", tone: "upcoming" };
+}
+
+export function commissionPaymentStatusDetailed(input: {
+  loadStatus: LoadStatus;
+  settled: boolean;
+  outstanding: number;
+  earned: boolean;
+  received: number;
+}): PaymentStatus {
+  if (input.loadStatus === "CANCELLED") {
+    return { label: "Cancelled", tone: "cancelled" };
+  }
+  if (input.settled || input.outstanding <= 0.001) {
+    return { label: "Paid", tone: "paid" };
+  }
+  if (!input.earned) {
+    return { label: "Upcoming", tone: "upcoming" };
+  }
+  if (input.received > 0.001) {
+    return { label: "In progress", tone: "due" };
+  }
+  return { label: "Due", tone: "due" };
+}
+
+/** Loads with freight or commission not fully settled (excludes cancelled) */
+export function loadHasOpenPayments(
+  load: Pick<
+    Load,
+    "loadStatus" | "rateSettled" | "commissionSettled"
+  >
+): boolean {
+  if (load.loadStatus === "CANCELLED") return false;
+  return !load.rateSettled || !load.commissionSettled;
+}
+
